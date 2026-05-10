@@ -1,12 +1,14 @@
 #include <jni.h>
 #include <android/log.h>
 #include <sys/mman.h>
+#include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
 #include <cstdint>
+#include <cstdlib>
+#include <cstdio>
 #include <pthread.h>
-#include <atomic>
 
 #define TAG "libnametag"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -22,17 +24,15 @@ typedef void (*fn_SF)(int);
 typedef void (*fn_SE)(int);
 typedef void (*fn_HD)();
 
-// ==========================================
-// OFFSET GTA SA v1.08 (SAMP STANDARD)
-// ==========================================
-#define OFF_PS  0x583D71u // CFont::PrintString
-#define OFF_SC  0x582D01u // CFont::SetColor
-#define OFF_SS  0x582C9Du // CFont::SetScale
-#define OFF_SO  0x582CE5u // CFont::SetOrientation
-#define OFF_SD  0x582D69u // CFont::SetDropShadowPosition
-#define OFF_SF  0x582C65u // CFont::SetFontStyle
-#define OFF_SE  0x582D8Du // CFont::SetEdge
-#define OFF_HD  0x43A659u // CHud::DrawAfterFade
+// OFFSET GTA SA v1.08
+#define OFF_PS  0x583D71u
+#define OFF_SC  0x582D01u
+#define OFF_SS  0x582C9Du
+#define OFF_SO  0x582CE5u
+#define OFF_SD  0x582D69u
+#define OFF_SF  0x582C65u
+#define OFF_SE  0x582D8Du
+#define OFF_HD  0x43A659u 
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
@@ -42,8 +42,8 @@ static char g_utf8[256]="PlayerName";
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// Atomic flag pengganti Mutex agar tidak ada error FORTIFY/Scudo
-static std::atomic<bool> g_is_updating(false);
+// Pengganti atomic & mutex: sangat ringan dan bisa di-compile tanpa flag tambahan
+static volatile bool g_is_updating = false;
 
 static const char* kP[]={
     "/storage/emulated/0/name.txt",
@@ -132,23 +132,9 @@ static void hook_HD(){
 
 static uintptr_t get_base(const char*lib){
     char p[64];snprintf(p,64,"/proc/%d/maps",getpid());
-    int fd = open(p, O_RDONLY);
-    if(fd < 0) return 0;
-    
-    char buf[4096];
-    ssize_t bytes = read(fd, buf, sizeof(buf)-1);
-    close(fd);
-    if (bytes <= 0) return 0;
-    buf[bytes] = 0;
-    
-    char* line = strtok(buf, "\n");
-    while(line) {
-        if(strstr(line, lib) && strstr(line, "r-xp")) {
-            return (uintptr_t)strtoul(line, nullptr, 16);
-        }
-        line = strtok(nullptr, "\n");
-    }
-    return 0;
+    FILE*f=fopen(p,"r");if(!f)return 0;char l[512];uintptr_t b=0;
+    while(fgets(l,512,f))if(strstr(l,lib)&&strstr(l,"r-xp")){b=(uintptr_t)strtoul(l,nullptr,16);break;}
+    fclose(f);return b;
 }
 
 #define T_PTR(a) ((a) | 1u)
@@ -176,7 +162,7 @@ static void* background_watcher(void*) {
 }
 
 __attribute__((constructor)) static void init(){
-    LOGI("init nametag posix v1.08");
+    LOGI("init nametag posix v1.08 fixed");
     tw(g_utf8, g_wide, 256);
     pthread_t t;
     pthread_create(&t, nullptr, background_watcher, nullptr);
