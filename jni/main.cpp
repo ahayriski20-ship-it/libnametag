@@ -24,7 +24,8 @@ typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
 typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
-typedef void (*fn_HD)();
+typedef void (*fn_SP)(unsigned char); // SetProportional
+typedef void (*fn_TU)(); // CTimer::Update
 
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
@@ -33,20 +34,20 @@ typedef void (*fn_HD)();
 #define OFF_SD  0x5A8A6Du
 #define OFF_SF  0x5AB14Du
 #define OFF_SE  0x5AB27Du
-#define OFF_HD  0x43A659u
+#define OFF_SP  0x005ab2b1u
+#define OFF_TU  0x00420be5u
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
-static fn_SE gSE; static fn_HD gOHD;
+static fn_SE gSE; static fn_SP gSP_func; static fn_TU gOTU;
 
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// Variabel Global untuk Konfigurasi
 static char g_text[256] = "Riski Boren";
 static float g_posX = 320.0f;
 static float g_posY = 390.0f;
-static float g_scale = 1.2f;
+static float g_scale = 0.8f; // Default baru agar padat
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -54,61 +55,51 @@ static void tw(const char*s, gw*d, int m){
     d[i]=0;
 }
 
-// MESIN PEMBACA CONFIG
 static void load_config() {
     const char* path = "/storage/emulated/0/riski_config.txt";
     FILE* f = fopen(path, "r");
     
     if (f) {
         char line[256];
-        // Baris 1: Teks
         if (fgets(line, sizeof(line), f)) {
             line[strcspn(line, "\r\n")] = 0;
             if(strlen(line) > 0) strcpy(g_text, line);
         }
-        // Baris 2: Posisi X
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posX);
-        // Baris 3: Posisi Y
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posY);
-        // Baris 4: Ukuran/Skala
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_scale);
-        
         fclose(f);
-        LOGI("Config berhasil dimuat: Teks='%s', X=%.1f, Y=%.1f, Scale=%.1f", g_text, g_posX, g_posY, g_scale);
+        LOGI("Config dimuat: '%s', X=%.1f, Y=%.1f, S=%.1f", g_text, g_posX, g_posY, g_scale);
     } else {
-        // Kalau file belum ada, otomatis bikin file default!
         f = fopen(path, "w");
         if (f) {
             fprintf(f, "%s\n%.1f\n%.1f\n%.1f\n", g_text, g_posX, g_posY, g_scale);
             fclose(f);
-            LOGI("File config default berhasil dibuat di %s", path);
         }
     }
-    
-    // Terapkan teks
     tw(g_text, g_wide, 256);
 }
 
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    if(gSF) gSF(2); // Font Tebal
-    if(gSD) gSD(0); // Matikan DropShadow
-    if(gSE) gSE(2); // Nyalakan Outline Tebal
-    if(gSO) gSO(1); // Set Alignment ke CENTER (Tengah)
+    if(gSF) gSF(2); // FONT STYLE 2 (Lebih padat)
+    if(gSD) gSD(0); // No drop shadow
+    if(gSP_func) gSP_func(1); // SetProportional(TRUE) = Font tidak patah-patah!
+    if(gSE) gSE(2); // Outline ketebalan 2
+    if(gSO) gSO(1); // Alignment Center
     
-    // Terapkan Warna Teks & Skala dari Config
     CRGBA text = {255, 255, 255, 255};
     gSC(&text); 
     gSS(g_scale); 
     
-    // Gambar teks di posisi X,Y dari Config
     gPS(g_posX, g_posY, g_wide);
 }
 
-static void hook_DrawAfterFade(){
-    if(gOHD) ((fn_HD)gOHD)();
-    if(g_ready) draw_watermark();
+// Hook dipindah ke CTimer::Update (Jauh dari RenderWare dan LuaJIT)
+static void hook_CTimer_Update(){
+    if(gOTU) ((fn_TU)gOTU)(); // Jalankan timer asli
+    if(g_ready) draw_watermark(); // Sisipkan render kita
 }
 
 static int find_lib_base(struct dl_phdr_info *info, size_t size, void *data) {
@@ -130,8 +121,6 @@ static void* init_thread(void*) {
     }
     
     sleep(5); 
-
-    // Muat konfigurasi sesaat sebelum hook aktif!
     load_config();
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
@@ -145,11 +134,13 @@ static void* init_thread(void*) {
     gSD = (fn_SD)T_PTR(b + OFF_SD);
     gSF = (fn_SF)T_PTR(b + OFF_SF);
     gSE = (fn_SE)T_PTR(b + OFF_SE);
+    gSP_func = (fn_SP)T_PTR(b + OFF_SP);
     gPS = (fn_PS)T_PTR(b + OFF_PS);
 
-    void* target = (void*)T_PTR(b + OFF_HD);
-    if (dobbyHook(target, (void*)hook_DrawAfterFade, (void**)&gOHD) == 0) {
+    void* target = (void*)T_PTR(b + OFF_TU);
+    if (dobbyHook(target, (void*)hook_CTimer_Update, (void**)&gOTU) == 0) {
         g_ready = true; 
+        LOGI("HOOK CTimer::Update BERHASIL! Anti LuaJIT Crash!");
     }
     return nullptr;
 }
