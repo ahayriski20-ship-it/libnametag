@@ -22,14 +22,16 @@ typedef void (*fn_SF)(int);
 typedef void (*fn_SE)(int);
 typedef void (*fn_HD)();
 
-#define OFF_PS 0x5AA191u
-#define OFF_SC 0x5A8C11u
-#define OFF_SS 0x5A8B91u
-#define OFF_SO 0x5A8BD9u
-#define OFF_SD 0x5A8C51u
-#define OFF_SF 0x5A8B51u
-#define OFF_SE 0x5A8C71u
-#define OFF_HD 0x58E919u
+// Offset GTA SA 2.00
+#define OFF_PS  0x5AA191u
+#define OFF_SC  0x5A8C11u
+#define OFF_SS  0x5A8B91u
+#define OFF_SO  0x5A8BD9u
+#define OFF_SD  0x5A8C51u
+#define OFF_SF  0x5A8B51u
+#define OFF_SE  0x5A8C71u
+// Ganti target ke DrawAfterFade agar tidak bentrok dengan hook SAMP
+#define OFF_HD  0x58D591u 
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
@@ -51,23 +53,30 @@ static const char* kP[]={
 
 static uint8_t s_tramp[16] __attribute__((aligned(4)));
 
-static bool thumb_hook(uintptr_t addr, void* replace, void** orig) {
+static bool thumb_hook(uintptr_t target_addr, void* replace, void** orig) {
+    uintptr_t addr = target_addr & ~1u; // Ambil base address
     int ps = getpagesize();
     void* page = (void*)(addr & ~(uintptr_t)(ps-1));
     if (mprotect(page, ps*2, PROT_READ|PROT_WRITE|PROT_EXEC) != 0) {
-        LOGE("mprotect target failed"); return false; }
+        LOGE("mprotect target failed"); return false; 
+    }
+    
+    // Copy 8 byte asli
     memcpy(s_tramp, (void*)addr, 8);
     uintptr_t ret = addr + 8;
     s_tramp[8]=0xDF; s_tramp[9]=0xF8; s_tramp[10]=0x00; s_tramp[11]=0xF0;
     memcpy(s_tramp+12, &ret, 4);
+    
     void* tp = (void*)((uintptr_t)s_tramp & ~(uintptr_t)(ps-1));
     mprotect(tp, ps, PROT_READ|PROT_WRITE|PROT_EXEC);
     __builtin___clear_cache((char*)s_tramp, (char*)s_tramp+16);
+    
     uintptr_t rep = (uintptr_t)replace;
     uint8_t patch[8]={0xDF,0xF8,0x00,0xF0};
     memcpy(patch+4, &rep, 4);
     memcpy((void*)addr, patch, 8);
     __builtin___clear_cache((char*)addr, (char*)addr+8);
+    
     *orig = (void*)((uintptr_t)s_tramp | 1);
     LOGI("hook OK addr=0x%08X rep=0x%08X", (unsigned)addr, (unsigned)rep);
     return true;
@@ -81,8 +90,6 @@ static void load(){
     pthread_mutex_lock(&g_mtx);strncpy(g_utf8,b,255);tw(g_utf8,g_wide,256);
     pthread_mutex_unlock(&g_mtx);LOGI("name=%s",g_utf8);return;}
     pthread_mutex_lock(&g_mtx);tw(g_utf8,g_wide,256);pthread_mutex_unlock(&g_mtx);}
-
-static void* watcher(void*){while(1){sleep(3);load();}return nullptr;}
 
 static void draw(){
     if(!gPS||!gSC||!gSS)return;
@@ -100,17 +107,40 @@ static uintptr_t get_base(const char*lib){
     while(fgets(l,512,f))if(strstr(l,lib)&&strstr(l,"r-xp")){b=(uintptr_t)strtoul(l,nullptr,16);break;}
     fclose(f);return b;}
 
-static inline uintptr_t R(uintptr_t a){return a&~1u;}
+// Makro T_PTR SANGAT PENTING untuk mempertahankan instruksi Thumb
+#define T_PTR(a) ((a) | 1u)
+
+static void* init_thread(void*) {
+    uintptr_t b = 0;
+    // Tunggu sampai libGTASA.so termuat di memori
+    while (!(b = get_base("libGTASA.so"))) { sleep(1); }
+    
+    // Beri waktu 2 detik agar mod SAMP Alyn selesai meng-hook gamenya
+    // Ini mencegah bentrok inline hook.
+    sleep(2); 
+    
+    LOGI("base=0x%08X", (unsigned)b);
+    gSC=(fn_SC)T_PTR(b+(OFF_SC&~1u)); gSS=(fn_SS)T_PTR(b+(OFF_SS&~1u));
+    gSO=(fn_SO)T_PTR(b+(OFF_SO&~1u)); gSD=(fn_SD)T_PTR(b+(OFF_SD&~1u));
+    gSF=(fn_SF)T_PTR(b+(OFF_SF&~1u)); gSE=(fn_SE)T_PTR(b+(OFF_SE&~1u));
+    gPS=(fn_PS)T_PTR(b+(OFF_PS&~1u));
+    
+    if(!thumb_hook(b+(OFF_HD&~1u),(void*)hook_HD,(void**)&gOHD)){
+        LOGE("hook fail"); return nullptr;
+    }
+    
+    g_ready=true; LOGI("ready name=%s",g_utf8);
+    
+    // Gunakan thread ini sekaligus sebagai watcher file name.txt
+    while(1){ sleep(3); load(); }
+    return nullptr;
+}
 
 __attribute__((constructor)) static void init(){
-    LOGI("init"); load();
-    uintptr_t b=get_base("libGTASA.so");
-    if(!b){LOGE("libGTASA not found");return;}
-    LOGI("base=0x%08X",(unsigned)b);
-    gSC=(fn_SC)R(b+(OFF_SC&~1u));gSS=(fn_SS)R(b+(OFF_SS&~1u));
-    gSO=(fn_SO)R(b+(OFF_SO&~1u));gSD=(fn_SD)R(b+(OFF_SD&~1u));
-    gSF=(fn_SF)R(b+(OFF_SF&~1u));gSE=(fn_SE)R(b+(OFF_SE&~1u));
-    gPS=(fn_PS)R(b+(OFF_PS&~1u));
-    if(!thumb_hook(b+(OFF_HD&~1u),(void*)hook_HD,(void**)&gOHD)){LOGE("hook fail");return;}
-    pthread_t t;pthread_create(&t,nullptr,watcher,nullptr);pthread_detach(t);
-    g_ready=true;LOGI("ready name=%s",g_utf8);}
+    LOGI("init nametag");
+    load();
+    // Jalankan injeksi lewat thread terpisah agar tidak menyebabkan ANR/Freeze saat awal masuk
+    pthread_t t;
+    pthread_create(&t, nullptr, init_thread, nullptr);
+    pthread_detach(t);
+}
