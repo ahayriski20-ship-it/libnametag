@@ -23,10 +23,8 @@ typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
 typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
-typedef void (*fn_SP)(unsigned char);
 typedef void (*fn_HD)();
 
-// OFFSET DARI READELF KAMU
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -45,8 +43,8 @@ static bool g_ready=false;
 
 static char g_text[256] = "Riski Boren";
 static float g_posX = 320.0f;
-static float g_posY = 410.0f;
-static float g_scale = 1.0f; // Skala maksimal yang aman biar gak patah-patah
+static float g_posY = 360.0f; // Dinaikkan sedikit biar kalau font gede gak kepotong layar bawah
+static float g_scale = 2.5f;  // FONT JUMBO BESAR!!!
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -78,7 +76,6 @@ static void load_config() {
     tw(g_text, g_wide, 256);
 }
 
-// TRIK RAHASIA: Fake Bold & Shadow
 static void PrintText(float x, float y, CRGBA color) {
     gSC(&color);
     gPS(x, y, g_wide);
@@ -87,24 +84,26 @@ static void PrintText(float x, float y, CRGBA color) {
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    if(gSF) gSF(2); // FONT STYLE 2 (Lebih padat)
-    if(gSD) gSD(0); // Matikan DropShadow bawaan
-    if(gSE) gSE(0); // Matikan Outline bawaan agar bersih
-    if(gSO) gSO(1); // Alignment: Center
+    if(gSF) gSF(2); 
+    if(gSD) gSD(0); 
+    if(gSE) gSE(0); 
+    if(gSO) gSO(1); 
     
-    gSS(g_scale); // Terapkan Skala
+    gSS(g_scale); // Terapkan Skala Jumbo
     
-    CRGBA shadow = {0, 0, 0, 255}; // Hitam Pekat
-    CRGBA text   = {255, 255, 255, 255}; // Putih Terang
+    CRGBA shadow = {0, 0, 0, 255}; 
+    CRGBA text   = {255, 255, 255, 255}; 
     
-    // Trik Fake Bold/Shadow: Gambar teks hitam sedikit bergeser
-    PrintText(g_posX - 1.5f, g_posY - 1.5f, shadow);
-    PrintText(g_posX + 1.5f, g_posY - 1.5f, shadow);
-    PrintText(g_posX - 1.5f, g_posY + 1.5f, shadow);
-    PrintText(g_posX + 1.5f, g_posY + 1.5f, shadow);
-    PrintText(g_posX,        g_posY + 2.0f, shadow); // Bayangan bawah
+    // Offset shadow disesuaikan dengan skala font biar proporsional
+    float offset = 1.5f * (g_scale / 1.0f);
     
-    // Gambar teks putih di tengah-tengahnya
+    PrintText(g_posX - offset, g_posY - offset, shadow);
+    PrintText(g_posX + offset, g_posY - offset, shadow);
+    PrintText(g_posX - offset, g_posY + offset, shadow);
+    PrintText(g_posX + offset, g_posY + offset, shadow);
+    PrintText(g_posX,          g_posY + offset + 1.0f, shadow); 
+    
+    // Teks Putih
     PrintText(g_posX, g_posY, text);
 }
 
@@ -131,7 +130,6 @@ static void* init_thread(void*) {
         sleep(1);
     }
     
-    // Waktu tunggu disesuaikan biar gak tabrakan sama CStreaming
     sleep(6); 
     load_config();
 
@@ -153,13 +151,12 @@ static void* init_thread(void*) {
         g_ready = true; 
     }
     
-    // BUNUH THREAD! Penting biar memori gak leaking dan crash.
     return nullptr; 
 }
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "riski|1.0|Dynamic Watermark|ahayriski";
+        static const char* info = "riski|1.0|Dynamic Watermark Jumbo|ahayriski";
         return (void*)info;
     }
 
