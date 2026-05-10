@@ -9,15 +9,15 @@
 
 #define TAG "libriski"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define EXPORT __attribute__((visibility("default")))
 
-// FIX: Struct CRGBA wajib agar sesuai dengan ARM32 Calling Convention
-struct CRGBA { unsigned char r, g, b, a; };
 typedef unsigned short gw;
 
-// Signature sesuai hasil ReadELF!
+// FIX ABI: Gunakan uint32_t daripada struct CRGBA untuk menghindari
+// masalah pass-by-value pada compiler NDK baru vs compiler GTA SA lama.
 typedef void (*fn_PS)(float,float,const gw*);
-typedef void (*fn_SC)(CRGBA);
+typedef void (*fn_SC)(uint32_t); // <--- KUNCI ANTI-CRASH DI SINI
 typedef void (*fn_SS)(float,float);
 typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
@@ -25,7 +25,7 @@ typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
 typedef void (*fn_HD)();
 
-// OFFSET CUSTOM DARI HASIL READELF KAMU
+// OFFSET CUSTOM DARI HASIL READELF (SANGAT AKURAT)
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -48,6 +48,12 @@ static void tw(const char*s, gw*d, int m){
     d[i]=0;
 }
 
+// Helper untuk menggabungkan R, G, B, A menjadi satu uint32_t
+// Little-Endian format: A di byte tertinggi, R di byte terendah (AABBGGRR)
+static uint32_t make_rgba(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+    return ((uint32_t)r) | ((uint32_t)g << 8) | ((uint32_t)b << 16) | ((uint32_t)a << 24);
+}
+
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
@@ -59,27 +65,27 @@ static void draw_watermark(){
     if(gSE) gSE(1); 
     
     // Terapkan Shadow
-    CRGBA shadow = {0, 0, 0, 200};
-    gSC(shadow); gSS(0.5f, 1.0f); if(gSO) gSO(0); gPS(X+1.5f, Y+1.5f, g_wide);
+    // CRGBA shadow = {0, 0, 0, 200};
+    uint32_t shadowColor = make_rgba(0, 0, 0, 200);
+    gSC(shadowColor); gSS(0.5f, 1.0f); if(gSO) gSO(0); gPS(X+1.5f, Y+1.5f, g_wide);
     
     // Terapkan Teks Utama
     if(gSE) gSE(0); 
-    CRGBA text = {255, 255, 255, 255};
-    gSC(text); gSS(0.5f, 1.0f); if(gSO) gSO(0); gPS(X, Y, g_wide);
+    // CRGBA text = {255, 255, 255, 255};
+    uint32_t textColor = make_rgba(255, 255, 255, 255);
+    gSC(textColor); gSS(0.5f, 1.0f); if(gSO) gSO(0); gPS(X, Y, g_wide);
 }
 
-// Hook dipasang di DrawAfterFade, dijamin tidak tabrakan dengan UI SAMP
 static void hook_DrawAfterFade(){
     if(gOHD) ((fn_HD)gOHD)();
     if(g_ready) draw_watermark();
 }
 
-// Fungsi Android API paling aman untuk mencari Base Address (Bebas file I/O crash)
 static int find_lib_base(struct dl_phdr_info *info, size_t size, void *data) {
     if (strstr(info->dlpi_name, "libGTASA.so")) {
         uintptr_t *base = (uintptr_t *)data;
         *base = info->dlpi_addr;
-        return 1; // Ketemu!
+        return 1; 
     }
     return 0;
 }
@@ -88,7 +94,6 @@ static int find_lib_base(struct dl_phdr_info *info, size_t size, void *data) {
 
 static void* init_thread(void*) {
     uintptr_t b = 0;
-    // Looping aman sampai libGTASA termuat di memori
     while (b == 0) {
         dl_iterate_phdr(find_lib_base, &b);
         sleep(1);
