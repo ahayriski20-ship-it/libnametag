@@ -6,10 +6,10 @@
 #include <cstdint>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #define TAG "libriski"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define EXPORT __attribute__((visibility("default")))
 
 struct CRGBA { unsigned char r, g, b, a; };
@@ -24,7 +24,7 @@ typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
 typedef void (*fn_HD)();
 
-// OFFSET 100% WORK
+// OFFSET AKURAT 100%
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -47,31 +47,43 @@ static void tw(const char*s, gw*d, int m){
     d[i]=0;
 }
 
+// FUNGSI BACA NAMA DARI STORAGE
+static void load_name_from_file() {
+    char name[256] = "rename name"; // Teks default jika file tidak ada
+    
+    FILE* f = fopen("/storage/emulated/0/name.txt", "r");
+    if (f) {
+        char temp[256] = {0};
+        if (fgets(temp, sizeof(temp), f)) {
+            temp[strcspn(temp, "\r\n")] = 0; // Hapus spasi enter
+            if(strlen(temp) > 0) {
+                strcpy(name, temp);
+            }
+        }
+        fclose(f);
+    }
+    
+    tw(name, g_wide, 256);
+    LOGI("Teks Watermark Terpasang: %s", name);
+}
+
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    // POSISI TENGAH BAWAH (Resolusi Virtual GTA = 640 x 448)
-    const float X = 260.0f; // Geser X ke tengah
-    const float Y = 380.0f; // Geser Y ke bawah
-
-    // FONT STYLE 2 (Lebih tebal dan HD)
-    if(gSF) gSF(2); 
-    if(gSD) gSD(0);
+    // POSISI TENGAH BAWAH (Resolusi Max Virtual GTA: 640x448)
+    const float X = 320.0f; // Di tengah
+    const float Y = 390.0f; // Di bawah, tidak nabrak tombol
     
-    // BAYANGAN (OUTLINE HITAM TEBAL)
-    CRGBA shadow = {0, 0, 0, 255};
-    gSC(&shadow); 
-    gSS(1.2f); // UKURAN DIBESARKAN DARI 0.5f KE 1.2f!
-    if(gSE) gSE(2); // Aktifkan Edge/Outline hitam (2 = tebal)
-    if(gSO) gSO(0); 
-    gPS(X+2.0f, Y+2.0f, g_wide); // Offset bayangan manual
+    if(gSF) gSF(2); // FONT STYLE 2 (Tebal Khas GTA)
+    if(gSD) gSD(0); // Matikan DropShadow bawaan
+    if(gSE) gSE(2); // Nyalakan Outline/Tepi Tebal
+    if(gSO) gSO(1); // ALIGNMENT: 1 = CENTER (TENGAH)
     
-    // TEKS UTAMA (PUTIH)
-    if(gSE) gSE(0); // Matikan Edge bawaan agar teks putih bersih
+    // Terapkan Teks Utama Putih
     CRGBA text = {255, 255, 255, 255};
     gSC(&text); 
-    gSS(1.2f); // UKURAN DIBESARKAN!
-    if(gSO) gSO(0); 
+    gSS(1.2f); // SKALA DIBESARKAN (HD)
+    
     gPS(X, Y, g_wide);
 }
 
@@ -97,7 +109,11 @@ static void* init_thread(void*) {
         dl_iterate_phdr(find_lib_base, &b);
         sleep(1);
     }
+    
     sleep(5); 
+
+    // Panggil fungsi baca file di sini dengan aman (anti-crash)
+    load_name_from_file();
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
     if (!hDobby) return nullptr;
@@ -126,7 +142,7 @@ extern "C" {
     }
 
     EXPORT void OnModLoad() {
-        tw("Riski Aja", g_wide, 256); 
+        tw("Loading...", g_wide, 256); 
         pthread_t t;
         pthread_create(&t, nullptr, init_thread, nullptr);
         pthread_detach(t);
