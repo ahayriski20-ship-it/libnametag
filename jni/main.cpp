@@ -7,7 +7,6 @@
 #include <cstring>
 #include <cstdint>
 #include <cstdlib>
-#include <cstdio>
 #include <pthread.h>
 
 #define TAG "libnametag"
@@ -42,7 +41,6 @@ static char g_utf8[256]="PlayerName";
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// Pengganti atomic & mutex: sangat ringan dan bisa di-compile tanpa flag tambahan
 static volatile bool g_is_updating = false;
 
 static const char* kP[]={
@@ -130,18 +128,44 @@ static void hook_HD(){
     if(g_ready) draw();
 }
 
-static uintptr_t get_base(const char*lib){
-    char p[64];snprintf(p,64,"/proc/%d/maps",getpid());
-    FILE*f=fopen(p,"r");if(!f)return 0;char l[512];uintptr_t b=0;
-    while(fgets(l,512,f))if(strstr(l,lib)&&strstr(l,"r-xp")){b=(uintptr_t)strtoul(l,nullptr,16);break;}
-    fclose(f);return b;
+// POSIX get_base yang 100% aman (Tanpa fgets)
+static uintptr_t get_base_posix(const char* lib_name) {
+    int fd = open("/proc/self/maps", O_RDONLY);
+    if (fd < 0) return 0;
+    
+    char buf[512];
+    uintptr_t base_addr = 0;
+    ssize_t bytes_read;
+    char line[512];
+    int line_pos = 0;
+    
+    while ((bytes_read = read(fd, buf, sizeof(buf))) > 0) {
+        for (ssize_t i = 0; i < bytes_read; i++) {
+            if (buf[i] == '\n' || i == bytes_read - 1) {
+                line[line_pos] = '\0';
+                if (strstr(line, lib_name) && strstr(line, "r-xp")) {
+                    base_addr = (uintptr_t)strtoul(line, nullptr, 16);
+                    close(fd);
+                    return base_addr;
+                }
+                line_pos = 0;
+            } else {
+                if (line_pos < 511) {
+                    line[line_pos++] = buf[i];
+                }
+            }
+        }
+    }
+    close(fd);
+    return base_addr;
 }
 
 #define T_PTR(a) ((a) | 1u)
 
 static void* background_watcher(void*) {
     uintptr_t b = 0;
-    while (!(b = get_base("libGTASA.so"))) { sleep(1); }
+    // Menggunakan fungsi get_base_posix yang baru
+    while (!(b = get_base_posix("libGTASA.so"))) { sleep(1); }
     sleep(2); 
 
     LOGI("libGTASA base=0x%08X", (unsigned)b);
@@ -162,7 +186,7 @@ static void* background_watcher(void*) {
 }
 
 __attribute__((constructor)) static void init(){
-    LOGI("init nametag posix v1.08 fixed");
+    LOGI("init nametag posix pure v1.08");
     tw(g_utf8, g_wide, 256);
     pthread_t t;
     pthread_create(&t, nullptr, background_watcher, nullptr);
