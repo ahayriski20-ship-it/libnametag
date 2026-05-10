@@ -12,20 +12,22 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define EXPORT __attribute__((visibility("default")))
 
+struct CRGBA { unsigned char r, g, b, a; };
 typedef unsigned short gw;
 
-// FIX ABI: Gunakan uint32_t daripada struct CRGBA untuk menghindari
-// masalah pass-by-value pada compiler NDK baru vs compiler GTA SA lama.
+// SIGNATURE FIX 100% SESUAI READELF:
+// 1. CRGBA dikirim sebagai Pointer (CRGBA*) untuk mencegah Invisible Reference Crash
+// 2. fn_SS (SetScale) hanya menerima 1 Float (Ef)
 typedef void (*fn_PS)(float,float,const gw*);
-typedef void (*fn_SC)(uint32_t); // <--- KUNCI ANTI-CRASH DI SINI
-typedef void (*fn_SS)(float,float);
+typedef void (*fn_SC)(CRGBA*); 
+typedef void (*fn_SS)(float);
 typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
 typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
 typedef void (*fn_HD)();
 
-// OFFSET CUSTOM DARI HASIL READELF (SANGAT AKURAT)
+// OFFSET CUSTOM DARI HASIL READELF KAMU
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -48,12 +50,6 @@ static void tw(const char*s, gw*d, int m){
     d[i]=0;
 }
 
-// Helper untuk menggabungkan R, G, B, A menjadi satu uint32_t
-// Little-Endian format: A di byte tertinggi, R di byte terendah (AABBGGRR)
-static uint32_t make_rgba(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
-    return ((uint32_t)r) | ((uint32_t)g << 8) | ((uint32_t)b << 16) | ((uint32_t)a << 24);
-}
-
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
@@ -64,16 +60,20 @@ static void draw_watermark(){
     if(gSD) gSD(0);
     if(gSE) gSE(1); 
     
-    // Terapkan Shadow
-    // CRGBA shadow = {0, 0, 0, 200};
-    uint32_t shadowColor = make_rgba(0, 0, 0, 200);
-    gSC(shadowColor); gSS(0.5f, 1.0f); if(gSO) gSO(0); gPS(X+1.5f, Y+1.5f, g_wide);
+    // Terapkan Shadow (Dikirim via Pointer '&')
+    CRGBA shadow = {0, 0, 0, 200};
+    gSC(&shadow); 
+    gSS(0.5f); // SetScale kini 1 parameter
+    if(gSO) gSO(0); 
+    gPS(X+1.5f, Y+1.5f, g_wide);
     
-    // Terapkan Teks Utama
+    // Terapkan Teks Utama Putih (Dikirim via Pointer '&')
     if(gSE) gSE(0); 
-    // CRGBA text = {255, 255, 255, 255};
-    uint32_t textColor = make_rgba(255, 255, 255, 255);
-    gSC(textColor); gSS(0.5f, 1.0f); if(gSO) gSO(0); gPS(X, Y, g_wide);
+    CRGBA text = {255, 255, 255, 255};
+    gSC(&text); 
+    gSS(0.5f); // SetScale kini 1 parameter
+    if(gSO) gSO(0); 
+    gPS(X, Y, g_wide);
 }
 
 static void hook_DrawAfterFade(){
@@ -99,6 +99,9 @@ static void* init_thread(void*) {
         sleep(1);
     }
     
+    // Delay 5 detik agar memori game siap
+    sleep(5); 
+
     LOGI("libGTASA Ditemukan di: 0x%08X", (unsigned)b);
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
@@ -129,7 +132,7 @@ extern "C" {
     }
 
     EXPORT void OnModLoad() {
-        LOGI("Riski Aja Mod Loaded oleh AML!");
+        LOGI("Riski Aja Mod Loaded!");
         tw("Riski Aja", g_wide, 256); 
         
         pthread_t t;
