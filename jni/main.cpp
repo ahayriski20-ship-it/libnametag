@@ -41,11 +41,11 @@ static fn_SE gSE; static fn_HD gOHD;
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// --- UPDATE: NAMA MASHIRO & POSISI DEKAT KAKI ---
+// --- UPDATE: TEKS HURUF KECIL & POSISI KIRI BAWAH ---
 static char g_text[256] = "Khong tim thay mashiroNeiko.asi";
-static float g_posX = 80.0f;  // Digeser agak ke kiri agar teks panjang tidak terpotong
-static float g_posY = 380.0f; // Diturunkan ke bawah layar (dekat kaki player)
-static float g_scale = 1.8f;  // Disesuaikan sedikit agar muat karena teksnya sangat panjang
+static float g_posX = 15.0f;  // Sangat ke kiri agar teks panjang tidak terpotong
+static float g_posY = 360.0f; // Diturunkan ke bawah layar (area kaki player)
+static float g_scale = 1.5f;  // Skala diturunkan agar teks panjang ini muat di area kiri bawah
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -57,8 +57,8 @@ static void tw(const char*s, gw*d, int m){
 }
 
 static void load_config() {
-    // Nama config baru agar otomatis reset pengaturan posisi dan teks
-    const char* path = "/storage/emulated/0/mashiro_config.txt";
+    // Nama file config baru untuk reset otomatis pengaturan posisi dan teks
+    const char* path = "/storage/emulated/0/mashiro_config_v2.txt";
     FILE* f = fopen(path, "r");
     
     if (f) {
@@ -158,7 +158,7 @@ static void* init_thread(void*) {
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "mashiro|1.2|Watermark Bottom|ahayriski";
+        static const char* info = "mashiro|1.3|Watermark Bottom Left|ahayriski";
         return (void*)info;
     }
 
