@@ -1,25 +1,20 @@
-name: Build libnametag
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+name: Build Mod Riski
+on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: nttld/setup-ndk@v1
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
         id: ndk
         with:
           ndk-version: r25c
-      - name: ndk-build
+      - name: Build
         run: |
-          ${{ steps.ndk.outputs.ndk-path }}/ndk-build \
-            NDK_PROJECT_PATH=. \
-            APP_BUILD_SCRIPT=./jni/Android.mk \
-            NDK_APPLICATION_MK=./jni/Application.mk \
-            -j$(nproc)
-      - uses: actions/upload-artifact@v4
+          ${{ steps.ndk.outputs.ndk-path }}/ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./jni/Android.mk NDK_APPLICATION_MK=./jni/Application.mk -j$(nproc)
+      - name: Upload
+        uses: actions/upload-artifact@v4
         with:
-          name: libnametag-arm32
-          path: libs/armeabi-v7a/libnametag.so
+          name: libriski-arm32
+          path: libs/armeabi-v7a/libriski.so
