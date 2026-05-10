@@ -15,9 +15,6 @@
 struct CRGBA { unsigned char r, g, b, a; };
 typedef unsigned short gw;
 
-// SIGNATURE FIX 100% SESUAI READELF:
-// 1. CRGBA dikirim sebagai Pointer (CRGBA*) untuk mencegah Invisible Reference Crash
-// 2. fn_SS (SetScale) hanya menerima 1 Float (Ef)
 typedef void (*fn_PS)(float,float,const gw*);
 typedef void (*fn_SC)(CRGBA*); 
 typedef void (*fn_SS)(float);
@@ -27,7 +24,7 @@ typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
 typedef void (*fn_HD)();
 
-// OFFSET CUSTOM DARI HASIL READELF KAMU
+// OFFSET 100% WORK
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -35,7 +32,7 @@ typedef void (*fn_HD)();
 #define OFF_SD  0x5A8A6Du
 #define OFF_SF  0x5AB14Du
 #define OFF_SE  0x5AB27Du
-#define OFF_HD  0x43A659u // DrawAfterFade
+#define OFF_HD  0x43A659u
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
@@ -53,25 +50,27 @@ static void tw(const char*s, gw*d, int m){
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    const float X = 350.0f; 
-    const float Y = 30.0f;
-    
-    if(gSF) gSF(1); 
+    // POSISI TENGAH BAWAH (Resolusi Virtual GTA = 640 x 448)
+    const float X = 260.0f; // Geser X ke tengah
+    const float Y = 380.0f; // Geser Y ke bawah
+
+    // FONT STYLE 2 (Lebih tebal dan HD)
+    if(gSF) gSF(2); 
     if(gSD) gSD(0);
-    if(gSE) gSE(1); 
     
-    // Terapkan Shadow (Dikirim via Pointer '&')
-    CRGBA shadow = {0, 0, 0, 200};
+    // BAYANGAN (OUTLINE HITAM TEBAL)
+    CRGBA shadow = {0, 0, 0, 255};
     gSC(&shadow); 
-    gSS(0.5f); // SetScale kini 1 parameter
+    gSS(1.2f); // UKURAN DIBESARKAN DARI 0.5f KE 1.2f!
+    if(gSE) gSE(2); // Aktifkan Edge/Outline hitam (2 = tebal)
     if(gSO) gSO(0); 
-    gPS(X+1.5f, Y+1.5f, g_wide);
+    gPS(X+2.0f, Y+2.0f, g_wide); // Offset bayangan manual
     
-    // Terapkan Teks Utama Putih (Dikirim via Pointer '&')
-    if(gSE) gSE(0); 
+    // TEKS UTAMA (PUTIH)
+    if(gSE) gSE(0); // Matikan Edge bawaan agar teks putih bersih
     CRGBA text = {255, 255, 255, 255};
     gSC(&text); 
-    gSS(0.5f); // SetScale kini 1 parameter
+    gSS(1.2f); // UKURAN DIBESARKAN!
     if(gSO) gSO(0); 
     gPS(X, Y, g_wide);
 }
@@ -98,11 +97,7 @@ static void* init_thread(void*) {
         dl_iterate_phdr(find_lib_base, &b);
         sleep(1);
     }
-    
-    // Delay 5 detik agar memori game siap
     sleep(5); 
-
-    LOGI("libGTASA Ditemukan di: 0x%08X", (unsigned)b);
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
     if (!hDobby) return nullptr;
@@ -120,7 +115,6 @@ static void* init_thread(void*) {
     void* target = (void*)T_PTR(b + OFF_HD);
     if (dobbyHook(target, (void*)hook_DrawAfterFade, (void**)&gOHD) == 0) {
         g_ready = true; 
-        LOGI("HOOK DrawAfterFade BERHASIL!");
     }
     return nullptr;
 }
@@ -132,9 +126,7 @@ extern "C" {
     }
 
     EXPORT void OnModLoad() {
-        LOGI("Riski Aja Mod Loaded!");
         tw("Riski Aja", g_wide, 256); 
-        
         pthread_t t;
         pthread_create(&t, nullptr, init_thread, nullptr);
         pthread_detach(t);
