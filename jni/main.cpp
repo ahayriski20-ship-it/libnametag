@@ -41,11 +41,11 @@ static fn_SE gSE; static fn_HD gOHD;
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// --- UPDATE: NAMA DAN POSISI DEFAULT ---
-static char g_text[256] = "Khong Asi";
-static float g_posX = 50.0f;  // Digeser ke kiri atas (Posisi ideal watermark)
-static float g_posY = 50.0f;  
-static float g_scale = 2.5f;  // Skala JUMBO tetap dipertahankan
+// --- UPDATE: NAMA MASHIRO & POSISI DEKAT KAKI ---
+static char g_text[256] = "Khong tim thay mashiroNeiko.asi";
+static float g_posX = 80.0f;  // Digeser agak ke kiri agar teks panjang tidak terpotong
+static float g_posY = 380.0f; // Diturunkan ke bawah layar (dekat kaki player)
+static float g_scale = 1.8f;  // Disesuaikan sedikit agar muat karena teksnya sangat panjang
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -57,8 +57,8 @@ static void tw(const char*s, gw*d, int m){
 }
 
 static void load_config() {
-    // Ganti nama config agar otomatis reset dan tidak membaca "Riski Boren" dari config lama
-    const char* path = "/storage/emulated/0/khongasi_config.txt";
+    // Nama config baru agar otomatis reset pengaturan posisi dan teks
+    const char* path = "/storage/emulated/0/mashiro_config.txt";
     FILE* f = fopen(path, "r");
     
     if (f) {
@@ -89,22 +89,19 @@ static void PrintText(float x, float y, CRGBA color) {
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    // Reset state font untuk mencegah visual glitch
     if(gSF) gSF(2); 
     if(gSD) gSD(0); 
     if(gSE) gSE(0); 
     if(gSO) gSO(1); 
     
-    gSS(g_scale); // Terapkan Skala Jumbo
+    gSS(g_scale); 
     
     CRGBA shadow = {0, 0, 0, 255}; 
     CRGBA text   = {255, 255, 255, 255}; 
     
     float offset = 1.5f * (g_scale / 1.0f);
     
-    // --- OPTIMASI ANTI-CRASH ---
-    // Cukup gunakan 2 lapisan bayangan diagonal untuk membentuk efek 3D. 
-    // Mengurangi panggilan PrintText dari 6 menjadi 3 per frame menyelamatkan memori CFont.
+    // Tetap gunakan 2 layer shadow agar ANTI-CRASH (CFont tidak kepenuhan memori)
     PrintText(g_posX - offset, g_posY - offset, shadow);
     PrintText(g_posX + offset, g_posY + offset, shadow);
     
@@ -161,7 +158,7 @@ static void* init_thread(void*) {
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "khongasi|1.1|Watermark Jumbo Fix|ahayriski";
+        static const char* info = "mashiro|1.2|Watermark Bottom|ahayriski";
         return (void*)info;
     }
 
