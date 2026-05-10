@@ -42,8 +42,8 @@ static gw g_wide[256]={};
 static bool g_ready=false;
 
 static char g_text[256] = "khong tim thay mashironeiko.asi";
-static float g_posX = 320.0f;
-static float g_posY = 400.0f;
+static float g_posX = 1024.0f;
+static float g_posY = 950.0f;
 static float g_scale = 1.2f;
 
 static void tw(const char*s, gw*d, int m){
@@ -56,9 +56,8 @@ static void tw(const char*s, gw*d, int m){
 }
 
 static void load_config() {
-    const char* path = "/storage/emulated/0/mashiro_fix_center.txt";
+    const char* path = "/storage/emulated/0/mashiro_v3.txt";
     FILE* f = fopen(path, "r");
-    
     if (f) {
         char line[256];
         if (fgets(line, sizeof(line), f)) {
@@ -70,8 +69,8 @@ static void load_config() {
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_scale);
         fclose(f);
     } else {
-        g_posX = 320.0f;
-        g_posY = 400.0f;
+        g_posX = 1024.0f;
+        g_posY = 950.0f;
         g_scale = 1.2f;
         f = fopen(path, "w");
         if (f) {
@@ -89,14 +88,11 @@ static void PrintText(float x, float y, CRGBA color) {
 
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
-    
     if(gSF) gSF(2); 
     if(gSD) gSD(0); 
-    if(gSO) gSO(1); 
+    if(gSO) gSO(1);
     if(gSE) gSE(1);
-    
     gSS(g_scale); 
-    
     CRGBA text = {255, 255, 255, 255}; 
     PrintText(g_posX, g_posY, text);
 }
@@ -123,7 +119,6 @@ static void* init_thread(void*) {
         dl_iterate_phdr(find_lib_base, &b);
         sleep(1);
     }
-    
     sleep(6); 
     load_config();
 
@@ -144,16 +139,14 @@ static void* init_thread(void*) {
     if (dobbyHook(target, (void*)hook_DrawAfterFade, (void**)&gOHD) == 0) {
         g_ready = true; 
     }
-    
     return nullptr; 
 }
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "mashiro|1.5|Fix Center Bottom|ahayriski";
+        static const char* info = "mashiro|1.7|X=1024 Y=950|ahayriski";
         return (void*)info;
     }
-
     EXPORT void OnModLoad() {
         tw("Loading...", g_wide, 256); 
         pthread_t t;
