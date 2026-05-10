@@ -19,10 +19,6 @@ jobs:
             APP_BUILD_SCRIPT=./jni/Android.mk \
             NDK_APPLICATION_MK=./jni/Application.mk \
             -j$(nproc)
-      - name: Verifikasi
-        run: |
-          ls -lh libs/armeabi-v7a/
-          file libs/armeabi-v7a/libnametag.so
       - uses: actions/upload-artifact@v4
         with:
           name: libnametag-arm32
