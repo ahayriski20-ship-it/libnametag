@@ -41,11 +41,11 @@ static fn_SE gSE; static fn_HD gOHD;
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// --- UPDATE: POSISI TENGAH BAWAH KAKI ---
+// --- UPDATE: TEKS HURUF KECIL & POSISI TENGAH BAWAH ---
 static char g_text[256] = "khong tim thay mashironeiko.asi";
-static float g_posX = 250.0f; // Geser ke arah tengah layar
-static float g_posY = 390.0f; // Tetap di area bawah (kaki player)
-static float g_scale = 1.3f;  // Skala aman agar tidak menabrak batas layar kanan
+static float g_posX = 320.0f; // TENGAH LAYAR (Posisi aman untuk semua HP)
+static float g_posY = 420.0f; // AREA BAWAH SEKALIAN (Benar-benar bawah kaki)
+static float g_scale = 0.9f;  // Skala diperkecil agar teks super panjang muat di tengah layar tanpa terpotong kanan-kiri
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -57,8 +57,8 @@ static void tw(const char*s, gw*d, int m){
 }
 
 static void load_config() {
-    // PENTING: Nama file baru agar posisi lama ter-reset otomatis jadi tengah bawah
-    const char* path = "/storage/emulated/0/mashiro_tengah_bawah.txt";
+    // PENTING: Nama file baru agar otomatis reset pengaturan posisi ter-set ke tengah
+    const char* path = "/storage/emulated/0/mashiro_tengah_fixed.txt";
     FILE* f = fopen(path, "r");
     
     if (f) {
@@ -87,22 +87,25 @@ static void PrintText(float x, float y, CRGBA color) {
 }
 
 static void draw_watermark(){
-    if(!gPS || !gSC || !gSS) return;
+    if(!gPS || !gSC || !gSS || !gSF || !gSD || !gSO || !gSE) return;
     
-    if(gSF) gSF(2); 
-    if(gSD) gSD(0); 
-    if(gSO) gSO(1); 
+    // --- FIX BUG KETIKA MATI (RESET STATE FONT TOTAL) ---
+    // Game sering merusak state font saat mati (tombol wasted/fasted muncul).
+    // Kita reset total settingannya sesaat sebelum kita gambar teks kita sendiri.
+    gSF(2);        // Reset Font style/texture
+    gSD(0);        // Reset Shadow/Edge mode
+    gSO(1);        // Reset Outline/Proportional setting
+    gSE(1);        // Nyalakan Native Outline agar teks terlihat jelas (Tetap Anti-Crash)
+    gSS(0.1f);     // Reset skala dulu
     
-    // --- OPTIMASI SUPER ANTI-CRASH ---
-    // Daripada print teks 2-3 kali buat bayangan, kita nyalakan outline bawaan game
-    if(gSE) gSE(1); // Set Edge = 1 (Membuat outline hitam secara native)
-    
+    // Terapkan skala sebenarnya
     gSS(g_scale); 
     
-    CRGBA text = {255, 255, 255, 255}; 
+    // Warna teks utama (Putih, Alpha 255)
+    CRGBA text_color = {255, 255, 255, 255}; 
     
-    // HANYA 1 KALI PANGGIL! Memori CFont dijamin aman & gak bakal bocor lagi
-    PrintText(g_posX, g_posY, text);
+    // Gambar Teks (HANYA 1 KALI PANGGIL untuk performa & kestabilan)
+    PrintText(g_posX, g_posY, text_color);
 }
 
 static void hook_DrawAfterFade(){
@@ -154,7 +157,7 @@ static void* init_thread(void*) {
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "mashiro|1.4|Tengah Bawah Anti Crash|ahayriski";
+        static const char* info = "mashiro|1.5|Fixed Position & Bug|ahayriski";
         return (void*)info;
     }
 
