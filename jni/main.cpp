@@ -1,11 +1,12 @@
 #include <jni.h>
 #include <android/log.h>
 #include <sys/mman.h>
-#include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
 #include <cstring>
 #include <cstdint>
-#include <unistd.h>
-#include <cstdlib>
+#include <pthread.h>
+#include <atomic>
 
 #define TAG "libnametag"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -21,14 +22,17 @@ typedef void (*fn_SF)(int);
 typedef void (*fn_SE)(int);
 typedef void (*fn_HD)();
 
-#define OFF_PS  0x5AA191u
-#define OFF_SC  0x5A8C11u
-#define OFF_SS  0x5A8B91u
-#define OFF_SO  0x5A8BD9u
-#define OFF_SD  0x5A8C51u
-#define OFF_SF  0x5A8B51u
-#define OFF_SE  0x5A8C71u
-#define OFF_HD  0x58D591u 
+// ==========================================
+// OFFSET GTA SA v1.08 (SAMP STANDARD)
+// ==========================================
+#define OFF_PS  0x583D71u // CFont::PrintString
+#define OFF_SC  0x582D01u // CFont::SetColor
+#define OFF_SS  0x582C9Du // CFont::SetScale
+#define OFF_SO  0x582CE5u // CFont::SetOrientation
+#define OFF_SD  0x582D69u // CFont::SetDropShadowPosition
+#define OFF_SF  0x582C65u // CFont::SetFontStyle
+#define OFF_SE  0x582D8Du // CFont::SetEdge
+#define OFF_HD  0x43A659u // CHud::DrawAfterFade
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
@@ -37,7 +41,9 @@ static fn_SE gSE; static fn_HD gOHD;
 static char g_utf8[256]="PlayerName";
 static gw g_wide[256]={};
 static bool g_ready=false;
-static int g_frameCount = 0; // rate limiter untuk reload nama
+
+// Atomic flag pengganti Mutex agar tidak ada error FORTIFY/Scudo
+static std::atomic<bool> g_is_updating(false);
 
 static const char* kP[]={
     "/storage/emulated/0/name.txt",
@@ -74,97 +80,105 @@ static bool thumb_hook(uintptr_t target_addr, void* replace, void** orig) {
     __builtin___clear_cache((char*)addr, (char*)addr+8);
     
     *orig = (void*)((uintptr_t)s_tramp | 1);
-    LOGI("hook OK addr=0x%08X rep=0x%08X", (unsigned)addr, (unsigned)rep);
+    LOGI("hook OK addr=0x%08X", (unsigned)addr);
     return true;
 }
 
-static void tw(const char*s,gw*d,int m){
+static void tw(const char*s, gw*d, int m){
     int i=0;
     while(*s && i<m-1) d[i++]=(gw)(unsigned char)*s++;
     d[i]=0;
 }
 
-static void load(){
-    for(int i=0; kP[i]; i++){
-        FILE* f = fopen(kP[i], "r");
-        if(!f) continue;
-        char b[256] = {0};
-        bool ok = fgets(b, sizeof(b), f) != nullptr;
-        fclose(f);
-        if(!ok) continue;
-        int n = strlen(b);
-        while(n>0 && (b[n-1]=='\n' || b[n-1]=='\r')) b[--n]=0;
-        if(!n) continue;
-        
-        strncpy(g_utf8, b, 255);
-        tw(g_utf8, g_wide, 256);
-        return;
+static void safe_load_name() {
+    for(int i=0; kP[i]; i++) {
+        int fd = open(kP[i], O_RDONLY);
+        if (fd >= 0) {
+            char b[256] = {0};
+            ssize_t bytes = read(fd, b, sizeof(b) - 1);
+            close(fd);
+            
+            if (bytes > 0) {
+                for(int j=0; j<bytes; j++) {
+                    if(b[j] == '\n' || b[j] == '\r') { b[j] = 0; break; }
+                }
+                if (b[0] != 0) {
+                    g_is_updating = true;
+                    strncpy(g_utf8, b, 255);
+                    tw(g_utf8, g_wide, 256);
+                    g_is_updating = false;
+                    return;
+                }
+            }
+        }
     }
+    g_is_updating = true;
     tw(g_utf8, g_wide, 256);
+    g_is_updating = false;
 }
 
 static void draw(){
-    if(!gPS || !gSC || !gSS) return;
+    if(!gPS || !gSC || !gSS || g_is_updating) return;
     const float X=360.0f, Y=45.0f;
     if(gSF) gSF(1); if(gSD) gSD(0);
     if(gSE) gSE(1); gSC(0,0,0,200); gSS(0.5f,1.0f); if(gSO) gSO(0); gPS(X+1.5f, Y+1.5f, g_wide);
     if(gSE) gSE(0); gSC(255,255,255,255); gSS(0.5f,1.0f); if(gSO) gSO(0); gPS(X, Y, g_wide);
 }
 
-// Hook dijalankan di thread utama game, sangat aman dari memory crash
 static void hook_HD(){
     ((fn_HD)gOHD)();
-    if(g_ready){
-        draw();
-        // Auto-reload nama setiap 120 frame (~2 detik di 60 FPS) agar tidak spam file system
-        g_frameCount++;
-        if (g_frameCount >= 120) {
-            load();
-            g_frameCount = 0;
-        }
-    }
+    if(g_ready) draw();
 }
 
 static uintptr_t get_base(const char*lib){
     char p[64];snprintf(p,64,"/proc/%d/maps",getpid());
-    FILE*f=fopen(p,"r");if(!f)return 0;char l[512];uintptr_t b=0;
-    while(fgets(l,512,f))if(strstr(l,lib)&&strstr(l,"r-xp")){b=(uintptr_t)strtoul(l,nullptr,16);break;}
-    fclose(f);return b;
+    int fd = open(p, O_RDONLY);
+    if(fd < 0) return 0;
+    
+    char buf[4096];
+    ssize_t bytes = read(fd, buf, sizeof(buf)-1);
+    close(fd);
+    if (bytes <= 0) return 0;
+    buf[bytes] = 0;
+    
+    char* line = strtok(buf, "\n");
+    while(line) {
+        if(strstr(line, lib) && strstr(line, "r-xp")) {
+            return (uintptr_t)strtoul(line, nullptr, 16);
+        }
+        line = strtok(nullptr, "\n");
+    }
+    return 0;
 }
 
 #define T_PTR(a) ((a) | 1u)
 
+static void* background_watcher(void*) {
+    uintptr_t b = 0;
+    while (!(b = get_base("libGTASA.so"))) { sleep(1); }
+    sleep(2); 
+
+    LOGI("libGTASA base=0x%08X", (unsigned)b);
+    gSC=(fn_SC)T_PTR(b+(OFF_SC&~1u)); gSS=(fn_SS)T_PTR(b+(OFF_SS&~1u));
+    gSO=(fn_SO)T_PTR(b+(OFF_SO&~1u)); gSD=(fn_SD)T_PTR(b+(OFF_SD&~1u));
+    gSF=(fn_SF)T_PTR(b+(OFF_SF&~1u)); gSE=(fn_SE)T_PTR(b+(OFF_SE&~1u));
+    gPS=(fn_PS)T_PTR(b+(OFF_PS&~1u));
+    
+    if(thumb_hook(b+(OFF_HD&~1u),(void*)hook_HD,(void**)&gOHD)){
+        g_ready = true; 
+    }
+    
+    while(1) {
+        safe_load_name();
+        sleep(2);
+    }
+    return nullptr;
+}
+
 __attribute__((constructor)) static void init(){
-    LOGI("init nametag");
-    load(); // Baca saat awal
-    
-    // Alih-alih pakai thread yang menyebabkan crash, kita pasang logic untuk menunggu libGTASA.so
-    // tanpa membekukan game (biasanya constructor dijalankan sesaat setelah load)
-    uintptr_t b = get_base("libGTASA.so");
-    if (!b) {
-        LOGI("libGTASA not found during constructor, trying fallback method.");
-        // Berikan delay sangat singkat jika libGTASA telat dimuat
-        for (int i=0; i<10; i++) {
-            usleep(500000); // 0.5 detik * 10 = 5 detik maksimal menunggu
-            b = get_base("libGTASA.so");
-            if (b) break;
-        }
-    }
-    
-    if (b) {
-        LOGI("base=0x%08X", (unsigned)b);
-        gSC=(fn_SC)T_PTR(b+(OFF_SC&~1u)); gSS=(fn_SS)T_PTR(b+(OFF_SS&~1u));
-        gSO=(fn_SO)T_PTR(b+(OFF_SO&~1u)); gSD=(fn_SD)T_PTR(b+(OFF_SD&~1u));
-        gSF=(fn_SF)T_PTR(b+(OFF_SF&~1u)); gSE=(fn_SE)T_PTR(b+(OFF_SE&~1u));
-        gPS=(fn_PS)T_PTR(b+(OFF_PS&~1u));
-        
-        if(thumb_hook(b+(OFF_HD&~1u),(void*)hook_HD,(void**)&gOHD)){
-            g_ready=true; 
-            LOGI("ready name=%s",g_utf8);
-        } else {
-            LOGE("hook fail");
-        }
-    } else {
-        LOGE("libGTASA completely missing.");
-    }
+    LOGI("init nametag posix v1.08");
+    tw(g_utf8, g_wide, 256);
+    pthread_t t;
+    pthread_create(&t, nullptr, background_watcher, nullptr);
+    pthread_detach(t);
 }
