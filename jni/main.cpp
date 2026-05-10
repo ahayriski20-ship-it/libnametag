@@ -11,7 +11,6 @@
 
 #define TAG "libriski"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define EXPORT __attribute__((visibility("default")))
 
 struct CRGBA { unsigned char r, g, b, a; };
@@ -24,9 +23,9 @@ typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
 typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
-typedef void (*fn_SP)(unsigned char); // SetProportional
-typedef void (*fn_TU)(); // CTimer::Update
+typedef void (*fn_HD)();
 
+// OFFSET AKURAT 100% (Dari hasil ReadELF)
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -34,20 +33,19 @@ typedef void (*fn_TU)(); // CTimer::Update
 #define OFF_SD  0x5A8A6Du
 #define OFF_SF  0x5AB14Du
 #define OFF_SE  0x5AB27Du
-#define OFF_SP  0x005ab2b1u
-#define OFF_TU  0x00420be5u
+#define OFF_HD  0x43A659u // KEMBALI KE DrawAfterFade (Aman dari LuaJIT)
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
-static fn_SE gSE; static fn_SP gSP_func; static fn_TU gOTU;
+static fn_SE gSE; static fn_HD gOHD;
 
 static gw g_wide[256]={};
 static bool g_ready=false;
 
 static char g_text[256] = "Riski Boren";
 static float g_posX = 320.0f;
-static float g_posY = 390.0f;
-static float g_scale = 0.8f; // Default baru agar padat
+static float g_posY = 410.0f; // Default digeser sedikit lebih ke bawah
+static float g_scale = 0.8f;  // Skala proporsional agar tajam/padat
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -69,7 +67,7 @@ static void load_config() {
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posY);
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_scale);
         fclose(f);
-        LOGI("Config dimuat: '%s', X=%.1f, Y=%.1f, S=%.1f", g_text, g_posX, g_posY, g_scale);
+        LOGI("Config dimuat: Teks='%s', X=%.1f, Y=%.1f, S=%.1f", g_text, g_posX, g_posY, g_scale);
     } else {
         f = fopen(path, "w");
         if (f) {
@@ -83,11 +81,10 @@ static void load_config() {
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    if(gSF) gSF(2); // FONT STYLE 2 (Lebih padat)
-    if(gSD) gSD(0); // No drop shadow
-    if(gSP_func) gSP_func(1); // SetProportional(TRUE) = Font tidak patah-patah!
-    if(gSE) gSE(2); // Outline ketebalan 2
-    if(gSO) gSO(1); // Alignment Center
+    if(gSF) gSF(2); // FONT STYLE 2 (HD & Padat khas GTA SA)
+    if(gSD) gSD(0); // Matikan DropShadow (Biar gak burik)
+    if(gSE) gSE(2); // Nyalakan Outline Hitam Tebal
+    if(gSO) gSO(1); // Alignment: CENTER
     
     CRGBA text = {255, 255, 255, 255};
     gSC(&text); 
@@ -96,10 +93,9 @@ static void draw_watermark(){
     gPS(g_posX, g_posY, g_wide);
 }
 
-// Hook dipindah ke CTimer::Update (Jauh dari RenderWare dan LuaJIT)
-static void hook_CTimer_Update(){
-    if(gOTU) ((fn_TU)gOTU)(); // Jalankan timer asli
-    if(g_ready) draw_watermark(); // Sisipkan render kita
+static void hook_DrawAfterFade(){
+    if(gOHD) ((fn_HD)gOHD)();
+    if(g_ready) draw_watermark();
 }
 
 static int find_lib_base(struct dl_phdr_info *info, size_t size, void *data) {
@@ -134,13 +130,13 @@ static void* init_thread(void*) {
     gSD = (fn_SD)T_PTR(b + OFF_SD);
     gSF = (fn_SF)T_PTR(b + OFF_SF);
     gSE = (fn_SE)T_PTR(b + OFF_SE);
-    gSP_func = (fn_SP)T_PTR(b + OFF_SP);
     gPS = (fn_PS)T_PTR(b + OFF_PS);
 
-    void* target = (void*)T_PTR(b + OFF_TU);
-    if (dobbyHook(target, (void*)hook_CTimer_Update, (void**)&gOTU) == 0) {
+    // KEMBALI HOOK KE CHud::DrawAfterFade
+    void* target = (void*)T_PTR(b + OFF_HD);
+    if (dobbyHook(target, (void*)hook_DrawAfterFade, (void**)&gOHD) == 0) {
         g_ready = true; 
-        LOGI("HOOK CTimer::Update BERHASIL! Anti LuaJIT Crash!");
+        LOGI("HOOK DrawAfterFade BERHASIL!");
     }
     return nullptr;
 }
