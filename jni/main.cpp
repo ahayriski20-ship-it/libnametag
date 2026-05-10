@@ -7,9 +7,11 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define TAG "libriski"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define EXPORT __attribute__((visibility("default")))
 
 struct CRGBA { unsigned char r, g, b, a; };
@@ -24,7 +26,6 @@ typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
 typedef void (*fn_HD)();
 
-// OFFSET AKURAT 100%
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -41,50 +42,68 @@ static fn_SE gSE; static fn_HD gOHD;
 static gw g_wide[256]={};
 static bool g_ready=false;
 
+// Variabel Global untuk Konfigurasi
+static char g_text[256] = "Riski Boren";
+static float g_posX = 320.0f;
+static float g_posY = 390.0f;
+static float g_scale = 1.2f;
+
 static void tw(const char*s, gw*d, int m){
     int i=0;
     while(*s && i<m-1) d[i++]=(gw)(unsigned char)*s++;
     d[i]=0;
 }
 
-// FUNGSI BACA NAMA DARI STORAGE
-static void load_name_from_file() {
-    char name[256] = "rename name"; // Teks default jika file tidak ada
+// MESIN PEMBACA CONFIG
+static void load_config() {
+    const char* path = "/storage/emulated/0/riski_config.txt";
+    FILE* f = fopen(path, "r");
     
-    FILE* f = fopen("/storage/emulated/0/name.txt", "r");
     if (f) {
-        char temp[256] = {0};
-        if (fgets(temp, sizeof(temp), f)) {
-            temp[strcspn(temp, "\r\n")] = 0; // Hapus spasi enter
-            if(strlen(temp) > 0) {
-                strcpy(name, temp);
-            }
+        char line[256];
+        // Baris 1: Teks
+        if (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = 0;
+            if(strlen(line) > 0) strcpy(g_text, line);
         }
+        // Baris 2: Posisi X
+        if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posX);
+        // Baris 3: Posisi Y
+        if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posY);
+        // Baris 4: Ukuran/Skala
+        if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_scale);
+        
         fclose(f);
+        LOGI("Config berhasil dimuat: Teks='%s', X=%.1f, Y=%.1f, Scale=%.1f", g_text, g_posX, g_posY, g_scale);
+    } else {
+        // Kalau file belum ada, otomatis bikin file default!
+        f = fopen(path, "w");
+        if (f) {
+            fprintf(f, "%s\n%.1f\n%.1f\n%.1f\n", g_text, g_posX, g_posY, g_scale);
+            fclose(f);
+            LOGI("File config default berhasil dibuat di %s", path);
+        }
     }
     
-    tw(name, g_wide, 256);
-    LOGI("Teks Watermark Terpasang: %s", name);
+    // Terapkan teks
+    tw(g_text, g_wide, 256);
 }
 
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    // POSISI TENGAH BAWAH (Resolusi Max Virtual GTA: 640x448)
-    const float X = 320.0f; // Di tengah
-    const float Y = 390.0f; // Di bawah, tidak nabrak tombol
+    if(gSF) gSF(2); // Font Tebal
+    if(gSD) gSD(0); // Matikan DropShadow
+    if(gSE) gSE(2); // Nyalakan Outline Tebal
+    if(gSO) gSO(1); // Set Alignment ke CENTER (Tengah)
     
-    if(gSF) gSF(2); // FONT STYLE 2 (Tebal Khas GTA)
-    if(gSD) gSD(0); // Matikan DropShadow bawaan
-    if(gSE) gSE(2); // Nyalakan Outline/Tepi Tebal
-    if(gSO) gSO(1); // ALIGNMENT: 1 = CENTER (TENGAH)
-    
-    // Terapkan Teks Utama Putih
+    // Terapkan Warna Teks & Skala dari Config
     CRGBA text = {255, 255, 255, 255};
     gSC(&text); 
-    gSS(1.2f); // SKALA DIBESARKAN (HD)
+    gSS(g_scale); 
     
-    gPS(X, Y, g_wide);
+    // Gambar teks di posisi X,Y dari Config
+    gPS(g_posX, g_posY, g_wide);
 }
 
 static void hook_DrawAfterFade(){
@@ -112,8 +131,8 @@ static void* init_thread(void*) {
     
     sleep(5); 
 
-    // Panggil fungsi baca file di sini dengan aman (anti-crash)
-    load_name_from_file();
+    // Muat konfigurasi sesaat sebelum hook aktif!
+    load_config();
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
     if (!hDobby) return nullptr;
@@ -137,7 +156,7 @@ static void* init_thread(void*) {
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "riski|1.0|Watermark Riski|ahayriski";
+        static const char* info = "riski|1.0|Dynamic Config Watermark|ahayriski";
         return (void*)info;
     }
 
