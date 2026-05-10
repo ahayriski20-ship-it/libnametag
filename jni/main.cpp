@@ -23,9 +23,10 @@ typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
 typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
+typedef void (*fn_SP)(unsigned char);
 typedef void (*fn_HD)();
 
-// OFFSET AKURAT 100% (Dari hasil ReadELF)
+// OFFSET DARI READELF KAMU
 #define OFF_PS  0x5AA191u
 #define OFF_SC  0x5AAFC9u
 #define OFF_SS  0x5AB109u
@@ -33,7 +34,7 @@ typedef void (*fn_HD)();
 #define OFF_SD  0x5A8A6Du
 #define OFF_SF  0x5AB14Du
 #define OFF_SE  0x5AB27Du
-#define OFF_HD  0x43A659u // KEMBALI KE DrawAfterFade (Aman dari LuaJIT)
+#define OFF_HD  0x43A659u 
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
@@ -44,8 +45,8 @@ static bool g_ready=false;
 
 static char g_text[256] = "Riski Boren";
 static float g_posX = 320.0f;
-static float g_posY = 410.0f; // Default digeser sedikit lebih ke bawah
-static float g_scale = 0.8f;  // Skala proporsional agar tajam/padat
+static float g_posY = 410.0f;
+static float g_scale = 1.0f; // Skala maksimal yang aman biar gak patah-patah
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -67,7 +68,6 @@ static void load_config() {
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posY);
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_scale);
         fclose(f);
-        LOGI("Config dimuat: Teks='%s', X=%.1f, Y=%.1f, S=%.1f", g_text, g_posX, g_posY, g_scale);
     } else {
         f = fopen(path, "w");
         if (f) {
@@ -78,19 +78,34 @@ static void load_config() {
     tw(g_text, g_wide, 256);
 }
 
+// TRIK RAHASIA: Fake Bold & Shadow
+static void PrintText(float x, float y, CRGBA color) {
+    gSC(&color);
+    gPS(x, y, g_wide);
+}
+
 static void draw_watermark(){
     if(!gPS || !gSC || !gSS) return;
     
-    if(gSF) gSF(2); // FONT STYLE 2 (HD & Padat khas GTA SA)
-    if(gSD) gSD(0); // Matikan DropShadow (Biar gak burik)
-    if(gSE) gSE(2); // Nyalakan Outline Hitam Tebal
-    if(gSO) gSO(1); // Alignment: CENTER
+    if(gSF) gSF(2); // FONT STYLE 2 (Lebih padat)
+    if(gSD) gSD(0); // Matikan DropShadow bawaan
+    if(gSE) gSE(0); // Matikan Outline bawaan agar bersih
+    if(gSO) gSO(1); // Alignment: Center
     
-    CRGBA text = {255, 255, 255, 255};
-    gSC(&text); 
-    gSS(g_scale); 
+    gSS(g_scale); // Terapkan Skala
     
-    gPS(g_posX, g_posY, g_wide);
+    CRGBA shadow = {0, 0, 0, 255}; // Hitam Pekat
+    CRGBA text   = {255, 255, 255, 255}; // Putih Terang
+    
+    // Trik Fake Bold/Shadow: Gambar teks hitam sedikit bergeser
+    PrintText(g_posX - 1.5f, g_posY - 1.5f, shadow);
+    PrintText(g_posX + 1.5f, g_posY - 1.5f, shadow);
+    PrintText(g_posX - 1.5f, g_posY + 1.5f, shadow);
+    PrintText(g_posX + 1.5f, g_posY + 1.5f, shadow);
+    PrintText(g_posX,        g_posY + 2.0f, shadow); // Bayangan bawah
+    
+    // Gambar teks putih di tengah-tengahnya
+    PrintText(g_posX, g_posY, text);
 }
 
 static void hook_DrawAfterFade(){
@@ -116,7 +131,8 @@ static void* init_thread(void*) {
         sleep(1);
     }
     
-    sleep(5); 
+    // Waktu tunggu disesuaikan biar gak tabrakan sama CStreaming
+    sleep(6); 
     load_config();
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
@@ -132,18 +148,18 @@ static void* init_thread(void*) {
     gSE = (fn_SE)T_PTR(b + OFF_SE);
     gPS = (fn_PS)T_PTR(b + OFF_PS);
 
-    // KEMBALI HOOK KE CHud::DrawAfterFade
     void* target = (void*)T_PTR(b + OFF_HD);
     if (dobbyHook(target, (void*)hook_DrawAfterFade, (void**)&gOHD) == 0) {
         g_ready = true; 
-        LOGI("HOOK DrawAfterFade BERHASIL!");
     }
-    return nullptr;
+    
+    // BUNUH THREAD! Penting biar memori gak leaking dan crash.
+    return nullptr; 
 }
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "riski|1.0|Dynamic Config Watermark|ahayriski";
+        static const char* info = "riski|1.0|Dynamic Watermark|ahayriski";
         return (void*)info;
     }
 
