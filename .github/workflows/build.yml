@@ -1,75 +1,43 @@
 name: Build libnametag
-
 on:
   push:
-    branches: [main, dev]
-  pull_request:
     branches: [main]
   workflow_dispatch:
-
 jobs:
   build:
-    name: ndk-build armeabi-v7a
     runs-on: ubuntu-latest
-
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ── Setup NDK r25c ─────────────────────────────────────────────────────
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
+      - uses: actions/checkout@v4
+      - uses: nttld/setup-ndk@v1
+        id: ndk
         with:
           ndk-version: r25c
-          add-to-path: true
-
-      # ── Download & extract Dobby prebuilt ──────────────────────────────────
-      - name: Download Dobby prebuilt (armeabi-v7a)
+      - name: Build Dobby
         run: |
-          mkdir -p jni/dobby/lib/armeabi-v7a
-          mkdir -p jni/dobby/include
-          # Dobby release dari GitHub (ganti URL jika ada versi lebih baru)
-          wget -q https://github.com/jmpews/Dobby/releases/download/v2.0/dobby-android.zip \
-               -O /tmp/dobby.zip || true
-          # Fallback: build Dobby dari source kalau release tidak tersedia
-          if [ ! -s /tmp/dobby.zip ]; then
-            echo "Building Dobby from source..."
-            git clone --depth=1 https://github.com/jmpews/Dobby /tmp/Dobby
-            cd /tmp/Dobby
-            cmake -DCMAKE_BUILD_TYPE=Release \
-                  -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
-                  -DANDROID_ABI=armeabi-v7a \
-                  -DANDROID_PLATFORM=android-21 \
-                  -DPlugin.SymbolResolver=OFF \
-                  -B build-arm32
-            cmake --build build-arm32 -j$(nproc)
-            cp build-arm32/libdobby.a $GITHUB_WORKSPACE/jni/dobby/lib/armeabi-v7a/
-            cp include/dobby.h         $GITHUB_WORKSPACE/jni/dobby/include/
-          else
-            cd /tmp && unzip -q dobby.zip
-            find /tmp -name 'libdobby.a' -path '*armeabi*' \
-                 -exec cp {} $GITHUB_WORKSPACE/jni/dobby/lib/armeabi-v7a/ \;
-            find /tmp -name 'dobby.h' \
-                 -exec cp {} $GITHUB_WORKSPACE/jni/dobby/include/ \;
-          fi
-
-      # ── ndk-build ─────────────────────────────────────────────────────────
-      - name: Build
-        env:
-          NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+          git clone https://github.com/jmpews/Dobby /tmp/Dobby
+          cd /tmp/Dobby
+          git checkout 51490a7fd0ce2395e2cfa36e79abb3c4ab94a0c6
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=${{ steps.ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-21 \
+            -DPlugin.SymbolResolver=OFF \
+            -G Ninja
+          ninja
+          mkdir -p $GITHUB_WORKSPACE/jni/dobby/lib/armeabi-v7a
+          mkdir -p $GITHUB_WORKSPACE/jni/dobby/include
+          cp libdobby.a $GITHUB_WORKSPACE/jni/dobby/lib/armeabi-v7a/
+          cp /tmp/Dobby/include/dobby.h $GITHUB_WORKSPACE/jni/dobby/include/
+      - name: ndk-build
         run: |
-          $NDK/ndk-build \
+          ${{ steps.ndk.outputs.ndk-path }}/ndk-build \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=./jni/Android.mk \
             NDK_APPLICATION_MK=./jni/Application.mk \
             -j$(nproc)
-
-      # ── Upload artifact ───────────────────────────────────────────────────
-      - name: Upload libnametag.so
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: libnametag-arm32
           path: libs/armeabi-v7a/libnametag.so
-          if-no-files-found: error
