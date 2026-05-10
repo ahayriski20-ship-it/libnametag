@@ -31,27 +31,15 @@ typedef void (*fn_HD)();
 #define OFF_SD  0x582D69u
 #define OFF_SF  0x582C65u
 #define OFF_SE  0x582D8Du
-// PINDAH HOOK KE CHud::Draw (Sangat aman untuk render teks)
-#define OFF_HD  0x58EB55u 
+#define OFF_HD  0x58EB55u // CHud::Draw 
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
 static fn_SE gSE; static fn_HD gOHD;
 
-static char g_utf8[256]="PlayerName";
+// Hardcode teks disini, kita buang variabel g_utf8
 static gw g_wide[256]={};
 static bool g_ready=false;
-
-static volatile bool g_is_updating = false;
-
-static const char* kP[]={
-    "/storage/emulated/0/name.txt",
-    "/sdcard/name.txt",
-    "/storage/emulated/0/SAMP/name.txt",
-    "/storage/emulated/0/Android/data/com.sampmobilerp.game/mods/name.txt",
-    "/storage/emulated/0/Android/data/ro.alyn_sampmobile.game/mods/name.txt",
-    nullptr
-};
 
 static uint8_t s_tramp[16] __attribute__((aligned(4)));
 
@@ -82,41 +70,15 @@ static bool thumb_hook(uintptr_t target_addr, void* replace, void** orig) {
     return true;
 }
 
+// Konverter string biasa ke wide string untuk engine GTA
 static void tw(const char*s, gw*d, int m){
     int i=0;
     while(*s && i<m-1) d[i++]=(gw)(unsigned char)*s++;
     d[i]=0;
 }
 
-static void safe_load_name() {
-    for(int i=0; kP[i]; i++) {
-        int fd = open(kP[i], O_RDONLY);
-        if (fd >= 0) {
-            char b[256] = {0};
-            ssize_t bytes = read(fd, b, sizeof(b) - 1);
-            close(fd);
-            
-            if (bytes > 0) {
-                for(int j=0; j<bytes; j++) {
-                    if(b[j] == '\n' || b[j] == '\r') { b[j] = 0; break; }
-                }
-                if (b[0] != 0) {
-                    g_is_updating = true;
-                    strncpy(g_utf8, b, 255);
-                    tw(g_utf8, g_wide, 256);
-                    g_is_updating = false;
-                    return;
-                }
-            }
-        }
-    }
-    g_is_updating = true;
-    tw(g_utf8, g_wide, 256);
-    g_is_updating = false;
-}
-
 static void draw(){
-    if(!gPS || !gSC || !gSS || g_is_updating) return;
+    if(!gPS || !gSC || !gSS) return;
     const float X=360.0f, Y=45.0f;
     if(gSF) gSF(1); if(gSD) gSD(0);
     if(gSE) gSE(1); gSC(0,0,0,200); gSS(0.5f,1.0f); if(gSO) gSO(0); gPS(X+1.5f, Y+1.5f, g_wide);
@@ -124,9 +86,7 @@ static void draw(){
 }
 
 static void hook_HD(){
-    // Gambar HUD bawaan game/SAMP dulu
     ((fn_HD)gOHD)();
-    // Setelah HUD selesai digambar, baru kita timpa dengan nametag kita
     if(g_ready) draw();
 }
 
@@ -152,10 +112,14 @@ static uintptr_t get_base_posix(const char* lib_name) {
 
 #define T_PTR(a) ((a) | 1u)
 
-static void* background_watcher(void*) {
+static void* init_thread(void*) {
     uintptr_t b = 0;
+    // Tunggu libGTASA termuat di memori
     while (!(b = get_base_posix("libGTASA.so"))) { sleep(1); }
-    sleep(3); // Ekstra waktu 3 detik membiarkan SAMP loading sempurna
+    
+    // Beri jeda 3 detik agar sistem modloader SAMP Alyn selesai me-loading
+    // map dan UI server, sehingga tidak tabrakan dengan hook kita
+    sleep(3); 
 
     gSC=(fn_SC)T_PTR(b+(OFF_SC&~1u)); gSS=(fn_SS)T_PTR(b+(OFF_SS&~1u));
     gSO=(fn_SO)T_PTR(b+(OFF_SO&~1u)); gSD=(fn_SD)T_PTR(b+(OFF_SD&~1u));
@@ -164,19 +128,19 @@ static void* background_watcher(void*) {
     
     if(thumb_hook(b+(OFF_HD&~1u),(void*)hook_HD,(void**)&gOHD)){
         g_ready = true; 
-        LOGI("Hook CHud::Draw Success!");
+        LOGI("Watermark siap!");
     }
     
-    while(1) {
-        safe_load_name();
-        sleep(2);
-    }
+    // Thread selesai bertugas dan langsung mati. Tidak ada lagi infinite loop (while(1))
+    // yang memberatkan memori/Scudo Allocator!
     return nullptr;
 }
 
 __attribute__((constructor)) static void init(){
-    tw(g_utf8, g_wide, 256);
+    // Setup teksnya sekali saja di awal
+    tw("Riski Aja", g_wide, 256);
+    
     pthread_t t;
-    pthread_create(&t, nullptr, background_watcher, nullptr);
+    pthread_create(&t, nullptr, init_thread, nullptr);
     pthread_detach(t);
 }
