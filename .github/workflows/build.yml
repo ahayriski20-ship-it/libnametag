@@ -14,18 +14,22 @@ jobs:
           ndk-version: r25c
       - name: Build Dobby
         run: |
-          git clone https://github.com/jmpews/Dobby /tmp/Dobby
+          git clone --depth=1 https://github.com/jmpews/Dobby /tmp/Dobby
           cd /tmp/Dobby
-          git checkout 51490a7fd0ce2395e2cfa36e79abb3c4ab94a0c6
-          mkdir build && cd build
+          # Fix bug include path Cpu.h di versi terbaru
+          find . -name "*.h" -o -name "*.cc" -o -name "*.cpp" | \
+            xargs sed -i 's|"core/arch/Cpu.h"|"source/core/arch/Cpu.h"|g' 2>/dev/null || true
+          mkdir -p build && cd build
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=${{ steps.ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=armeabi-v7a \
             -DANDROID_PLATFORM=android-21 \
             -DPlugin.SymbolResolver=OFF \
+            -DCMAKE_CXX_FLAGS="-I/tmp/Dobby/source -I/tmp/Dobby" \
+            -DCMAKE_C_FLAGS="-I/tmp/Dobby/source -I/tmp/Dobby" \
             -G Ninja
-          ninja
+          ninja -j$(nproc)
           mkdir -p $GITHUB_WORKSPACE/jni/dobby/lib/armeabi-v7a
           mkdir -p $GITHUB_WORKSPACE/jni/dobby/include
           cp libdobby.a $GITHUB_WORKSPACE/jni/dobby/lib/armeabi-v7a/
