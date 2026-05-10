@@ -23,6 +23,7 @@ typedef void (*fn_SO)(unsigned char);
 typedef void (*fn_SD)(signed char);
 typedef void (*fn_SF)(unsigned char);
 typedef void (*fn_SE)(signed char);
+typedef void (*fn_SP)(unsigned char);
 typedef void (*fn_HD)();
 
 #define OFF_PS  0x5AA191u
@@ -32,19 +33,20 @@ typedef void (*fn_HD)();
 #define OFF_SD  0x5A8A6Du
 #define OFF_SF  0x5AB14Du
 #define OFF_SE  0x5AB27Du
+#define OFF_SP  0x5AB0BDu
 #define OFF_HD  0x43A659u 
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
-static fn_SE gSE; static fn_HD gOHD;
+static fn_SE gSE; static fn_SP gSP; static fn_HD gOHD;
 
 static gw g_wide[256]={};
 static bool g_ready=false;
 
 static char g_text[256] = "Riski Boren";
-static float g_posX = 320.0f;
-static float g_posY = 360.0f; // Dinaikkan sedikit biar kalau font gede gak kepotong layar bawah
-static float g_scale = 2.5f;  // FONT JUMBO BESAR!!!
+static float g_posX = 320.0f; // Tengah Layar (GTA 640x448)
+static float g_posY = 370.0f; // Bawah Layar (di atas sedikit tombol otot)
+static float g_scale = 2.0f;  // Gede Bos!
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -55,23 +57,16 @@ static void tw(const char*s, gw*d, int m){
 static void load_config() {
     const char* path = "/storage/emulated/0/riski_config.txt";
     FILE* f = fopen(path, "r");
-    
     if (f) {
         char line[256];
-        if (fgets(line, sizeof(line), f)) {
-            line[strcspn(line, "\r\n")] = 0;
-            if(strlen(line) > 0) strcpy(g_text, line);
-        }
+        if (fgets(line, sizeof(line), f)) { line[strcspn(line, "\r\n")] = 0; if(strlen(line) > 0) strcpy(g_text, line); }
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posX);
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_posY);
         if (fgets(line, sizeof(line), f)) sscanf(line, "%f", &g_scale);
         fclose(f);
     } else {
         f = fopen(path, "w");
-        if (f) {
-            fprintf(f, "%s\n%.1f\n%.1f\n%.1f\n", g_text, g_posX, g_posY, g_scale);
-            fclose(f);
-        }
+        if (f) { fprintf(f, "%s\n%.1f\n%.1f\n%.1f\n", g_text, g_posX, g_posY, g_scale); fclose(f); }
     }
     tw(g_text, g_wide, 256);
 }
@@ -82,41 +77,35 @@ static void PrintText(float x, float y, CRGBA color) {
 }
 
 static void draw_watermark(){
-    if(!gPS || !gSC || !gSS) return;
+    if(!gPS || !gSC || !gSS || !g_ready) return;
     
-    if(gSF) gSF(2); 
-    if(gSD) gSD(0); 
-    if(gSE) gSE(0); 
-    if(gSO) gSO(1); 
+    if(gSF) gSF(2); // Font Tebal
+    if(gSD) gSD(0); // Matikan shadow default
+    if(gSP) gSP(1); // Proportional ON (Biar font rapet/padat)
+    if(gSO) gSO(1); // Center Alignment
     
-    gSS(g_scale); // Terapkan Skala Jumbo
+    gSS(g_scale);
     
-    CRGBA shadow = {0, 0, 0, 255}; 
-    CRGBA text   = {255, 255, 255, 255}; 
+    CRGBA shadow = {0, 0, 0, 255};
+    CRGBA text   = {255, 255, 255, 255};
+    float off = 1.8f; // Offset bayangan buat font jumbo
     
-    // Offset shadow disesuaikan dengan skala font biar proporsional
-    float offset = 1.5f * (g_scale / 1.0f);
-    
-    PrintText(g_posX - offset, g_posY - offset, shadow);
-    PrintText(g_posX + offset, g_posY - offset, shadow);
-    PrintText(g_posX - offset, g_posY + offset, shadow);
-    PrintText(g_posX + offset, g_posY + offset, shadow);
-    PrintText(g_posX,          g_posY + offset + 1.0f, shadow); 
-    
-    // Teks Putih
+    PrintText(g_posX - off, g_posY - off, shadow);
+    PrintText(g_posX + off, g_posY - off, shadow);
+    PrintText(g_posX - off, g_posY + off, shadow);
+    PrintText(g_posX + off, g_posY + off, shadow);
     PrintText(g_posX, g_posY, text);
 }
 
 static void hook_DrawAfterFade(){
     if(gOHD) ((fn_HD)gOHD)();
-    if(g_ready) draw_watermark();
+    draw_watermark();
 }
 
 static int find_lib_base(struct dl_phdr_info *info, size_t size, void *data) {
     if (strstr(info->dlpi_name, "libGTASA.so")) {
-        uintptr_t *base = (uintptr_t *)data;
-        *base = info->dlpi_addr;
-        return 1; 
+        *(uintptr_t *)data = info->dlpi_addr;
+        return 1;
     }
     return 0;
 }
@@ -125,12 +114,10 @@ static int find_lib_base(struct dl_phdr_info *info, size_t size, void *data) {
 
 static void* init_thread(void*) {
     uintptr_t b = 0;
-    while (b == 0) {
-        dl_iterate_phdr(find_lib_base, &b);
-        sleep(1);
-    }
+    while (b == 0) { dl_iterate_phdr(find_lib_base, &b); sleep(1); }
     
-    sleep(6); 
+    // TUNGGU 10 DETIK! Biar SAMP selesai loading memcpy texture yang bikin crash.
+    sleep(10); 
     load_config();
 
     void* hDobby = dlopen("libdobby.so", RTLD_NOW | RTLD_GLOBAL);
@@ -138,32 +125,19 @@ static void* init_thread(void*) {
     auto dobbyHook = (int(*)(void*,void*,void**)) dlsym(hDobby, "DobbyHook");
     if (!dobbyHook) return nullptr;
 
-    gSC = (fn_SC)T_PTR(b + OFF_SC);
-    gSS = (fn_SS)T_PTR(b + OFF_SS);
-    gSO = (fn_SO)T_PTR(b + OFF_SO);
-    gSD = (fn_SD)T_PTR(b + OFF_SD);
-    gSF = (fn_SF)T_PTR(b + OFF_SF);
-    gSE = (fn_SE)T_PTR(b + OFF_SE);
-    gPS = (fn_PS)T_PTR(b + OFF_PS);
+    gSC=(fn_SC)T_PTR(b+OFF_SC); gSS=(fn_SS)T_PTR(b+OFF_SS);
+    gSO=(fn_SO)T_PTR(b+OFF_SO); gSD=(fn_SD)T_PTR(b+OFF_SD);
+    gSF=(fn_SF)T_PTR(b+OFF_SF); gSE=(fn_SE)T_PTR(b+OFF_SE);
+    gSP=(fn_SP)T_PTR(b+OFF_SP); gPS=(fn_PS)T_PTR(b+OFF_PS);
 
     void* target = (void*)T_PTR(b + OFF_HD);
     if (dobbyHook(target, (void*)hook_DrawAfterFade, (void**)&gOHD) == 0) {
-        g_ready = true; 
+        g_ready = true;
     }
-    
     return nullptr; 
 }
 
 extern "C" {
-    EXPORT void* __GetModInfo() {
-        static const char* info = "riski|1.0|Dynamic Watermark Jumbo|ahayriski";
-        return (void*)info;
-    }
-
-    EXPORT void OnModLoad() {
-        tw("Loading...", g_wide, 256); 
-        pthread_t t;
-        pthread_create(&t, nullptr, init_thread, nullptr);
-        pthread_detach(t);
-    }
+    EXPORT void* __GetModInfo() { static const char* info = "riski|1.0|Watermark Jumbo Fix|ahayriski"; return (void*)info; }
+    EXPORT void OnModLoad() { tw("Loading...", g_wide, 256); pthread_t t; pthread_create(&t, nullptr, init_thread, nullptr); pthread_detach(t); }
 }
