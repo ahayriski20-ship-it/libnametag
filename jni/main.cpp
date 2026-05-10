@@ -41,11 +41,11 @@ static fn_SE gSE; static fn_HD gOHD;
 static gw g_wide[256]={};
 static bool g_ready=false;
 
-// --- UPDATE: TEKS HURUF KECIL & POSISI KIRI BAWAH ---
-static char g_text[256] = "Khong tim thay mashiroNeiko.asi";
-static float g_posX = 15.0f;  // Sangat ke kiri agar teks panjang tidak terpotong
-static float g_posY = 360.0f; // Diturunkan ke bawah layar (area kaki player)
-static float g_scale = 1.5f;  // Skala diturunkan agar teks panjang ini muat di area kiri bawah
+// --- UPDATE: POSISI TENGAH BAWAH KAKI ---
+static char g_text[256] = "khong tim thay mashironeiko.asi";
+static float g_posX = 250.0f; // Geser ke arah tengah layar
+static float g_posY = 390.0f; // Tetap di area bawah (kaki player)
+static float g_scale = 1.3f;  // Skala aman agar tidak menabrak batas layar kanan
 
 static void tw(const char*s, gw*d, int m){
     int i=0;
@@ -57,8 +57,8 @@ static void tw(const char*s, gw*d, int m){
 }
 
 static void load_config() {
-    // Nama file config baru untuk reset otomatis pengaturan posisi dan teks
-    const char* path = "/storage/emulated/0/mashiro_config_v2.txt";
+    // PENTING: Nama file baru agar posisi lama ter-reset otomatis jadi tengah bawah
+    const char* path = "/storage/emulated/0/mashiro_tengah_bawah.txt";
     FILE* f = fopen(path, "r");
     
     if (f) {
@@ -91,21 +91,17 @@ static void draw_watermark(){
     
     if(gSF) gSF(2); 
     if(gSD) gSD(0); 
-    if(gSE) gSE(0); 
     if(gSO) gSO(1); 
+    
+    // --- OPTIMASI SUPER ANTI-CRASH ---
+    // Daripada print teks 2-3 kali buat bayangan, kita nyalakan outline bawaan game
+    if(gSE) gSE(1); // Set Edge = 1 (Membuat outline hitam secara native)
     
     gSS(g_scale); 
     
-    CRGBA shadow = {0, 0, 0, 255}; 
-    CRGBA text   = {255, 255, 255, 255}; 
+    CRGBA text = {255, 255, 255, 255}; 
     
-    float offset = 1.5f * (g_scale / 1.0f);
-    
-    // Tetap gunakan 2 layer shadow agar ANTI-CRASH (CFont tidak kepenuhan memori)
-    PrintText(g_posX - offset, g_posY - offset, shadow);
-    PrintText(g_posX + offset, g_posY + offset, shadow);
-    
-    // Teks Putih Utama
+    // HANYA 1 KALI PANGGIL! Memori CFont dijamin aman & gak bakal bocor lagi
     PrintText(g_posX, g_posY, text);
 }
 
@@ -158,7 +154,7 @@ static void* init_thread(void*) {
 
 extern "C" {
     EXPORT void* __GetModInfo() {
-        static const char* info = "mashiro|1.3|Watermark Bottom Left|ahayriski";
+        static const char* info = "mashiro|1.4|Tengah Bawah Anti Crash|ahayriski";
         return (void*)info;
     }
 
