@@ -31,7 +31,8 @@ typedef void (*fn_HD)();
 #define OFF_SD  0x582D69u
 #define OFF_SF  0x582C65u
 #define OFF_SE  0x582D8Du
-#define OFF_HD  0x43A659u 
+// PINDAH HOOK KE CHud::Draw (Sangat aman untuk render teks)
+#define OFF_HD  0x58EB55u 
 
 static fn_PS gPS; static fn_SC gSC; static fn_SS gSS;
 static fn_SO gSO; static fn_SD gSD; static fn_SF gSF;
@@ -78,7 +79,6 @@ static bool thumb_hook(uintptr_t target_addr, void* replace, void** orig) {
     __builtin___clear_cache((char*)addr, (char*)addr+8);
     
     *orig = (void*)((uintptr_t)s_tramp | 1);
-    LOGI("hook OK addr=0x%08X", (unsigned)addr);
     return true;
 }
 
@@ -124,51 +124,39 @@ static void draw(){
 }
 
 static void hook_HD(){
+    // Gambar HUD bawaan game/SAMP dulu
     ((fn_HD)gOHD)();
+    // Setelah HUD selesai digambar, baru kita timpa dengan nametag kita
     if(g_ready) draw();
 }
 
-// POSIX get_base yang 100% aman (Tanpa fgets)
 static uintptr_t get_base_posix(const char* lib_name) {
     int fd = open("/proc/self/maps", O_RDONLY);
     if (fd < 0) return 0;
-    
-    char buf[512];
-    uintptr_t base_addr = 0;
-    ssize_t bytes_read;
-    char line[512];
-    int line_pos = 0;
-    
+    char buf[512]; uintptr_t base_addr = 0; ssize_t bytes_read;
+    char line[512]; int line_pos = 0;
     while ((bytes_read = read(fd, buf, sizeof(buf))) > 0) {
         for (ssize_t i = 0; i < bytes_read; i++) {
             if (buf[i] == '\n' || i == bytes_read - 1) {
                 line[line_pos] = '\0';
                 if (strstr(line, lib_name) && strstr(line, "r-xp")) {
                     base_addr = (uintptr_t)strtoul(line, nullptr, 16);
-                    close(fd);
-                    return base_addr;
+                    close(fd); return base_addr;
                 }
                 line_pos = 0;
-            } else {
-                if (line_pos < 511) {
-                    line[line_pos++] = buf[i];
-                }
-            }
+            } else { if (line_pos < 511) line[line_pos++] = buf[i]; }
         }
     }
-    close(fd);
-    return base_addr;
+    close(fd); return base_addr;
 }
 
 #define T_PTR(a) ((a) | 1u)
 
 static void* background_watcher(void*) {
     uintptr_t b = 0;
-    // Menggunakan fungsi get_base_posix yang baru
     while (!(b = get_base_posix("libGTASA.so"))) { sleep(1); }
-    sleep(2); 
+    sleep(3); // Ekstra waktu 3 detik membiarkan SAMP loading sempurna
 
-    LOGI("libGTASA base=0x%08X", (unsigned)b);
     gSC=(fn_SC)T_PTR(b+(OFF_SC&~1u)); gSS=(fn_SS)T_PTR(b+(OFF_SS&~1u));
     gSO=(fn_SO)T_PTR(b+(OFF_SO&~1u)); gSD=(fn_SD)T_PTR(b+(OFF_SD&~1u));
     gSF=(fn_SF)T_PTR(b+(OFF_SF&~1u)); gSE=(fn_SE)T_PTR(b+(OFF_SE&~1u));
@@ -176,6 +164,7 @@ static void* background_watcher(void*) {
     
     if(thumb_hook(b+(OFF_HD&~1u),(void*)hook_HD,(void**)&gOHD)){
         g_ready = true; 
+        LOGI("Hook CHud::Draw Success!");
     }
     
     while(1) {
@@ -186,7 +175,6 @@ static void* background_watcher(void*) {
 }
 
 __attribute__((constructor)) static void init(){
-    LOGI("init nametag posix pure v1.08");
     tw(g_utf8, g_wide, 256);
     pthread_t t;
     pthread_create(&t, nullptr, background_watcher, nullptr);
